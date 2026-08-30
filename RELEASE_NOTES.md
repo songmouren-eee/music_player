@@ -1,12 +1,8 @@
-Music Player v4.0 APK release
+Music Player v4.0 APK
 
-This is the APK file for the music player application.
+文件大小: 7.5 MB
 
-## Features
-- Local music playback
-- Playlist management
-- Lyrics display
-
-### File Information
-- Size: 7.5 MB
-- Version: v4.0
+## 功能
+- 本地音乐播放
+- 播放列表管理
+- 歌词显示
