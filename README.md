@@ -4,7 +4,7 @@ Android 音乐播放器应用
 
 ## 下载
 
-- [音乐播放器 v4.0 APK](https://github.com/songmouren-eee/music_player/releases/download/v4.0/music_player_v4.0.apk)
+- [音乐播放器 v4.0 APK](https://github.com/songmouren-eee/music_player/releases)
 
 ## 功能
 
