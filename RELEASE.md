@@ -1,10 +1,18 @@
-Music Player v4.0 APK Release
+# Music Player
 
-文件: music_player_v4.0.apk
-大小: 7.5 MB
-版本: v4.0
+Android 音乐播放器应用
+
+## 下载
+
+- [音乐播放器 v4.0 APK](https://github.com/songmouren-eee/music_player/releases/download/v4.0/music_player_v4.0.apk)
 
 ## 功能
+
 - 本地音乐播放
 - 播放列表管理
 - 歌词显示
+
+## 版本历史
+
+### v4.0 (2026-08-30)
+- 初始版本
