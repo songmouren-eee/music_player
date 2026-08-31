@@ -11,6 +11,7 @@ const Player = {
     onEnded: null,
     onLoaded: null,
     onError: null,
+    _audioUnlocked: false,
     init() {
         this.audio = document.getElementById('nativeAudio');
         const settings = Storage.getSettings();
@@ -20,6 +21,30 @@ const Player = {
         setTimeout(() => {
             this.syncPlaySpeedUI();
         }, 0);
+        // 自动播放解锁：在捕获阶段监听首次用户交互，提前解锁音频元素
+        // 这样用户点击歌曲时，音频元素已在同一手势中被激活，后续异步 play() 不会被浏览器阻止
+        this._unlockAudio = () => {
+            if (this._audioUnlocked) return;
+            this._audioUnlocked = true;
+            // 在用户手势中播放并立即暂停，以此解锁音频元素的自动播放权限
+            try {
+                const playPromise = this.audio.play();
+                if (playPromise && typeof playPromise.then === 'function') {
+                    playPromise.then(() => {
+                        this.audio.pause();
+                        this.audio.currentTime = 0;
+                    }).catch(() => {});
+                }
+            } catch (e) {}
+            // 解锁后移除所有监听器
+            document.removeEventListener('click', this._unlockAudio, true);
+            document.removeEventListener('touchstart', this._unlockAudio, true);
+            document.removeEventListener('keydown', this._unlockAudio, true);
+        };
+        // 使用捕获阶段，确保在目标元素的 onclick 之前执行解锁
+        document.addEventListener('click', this._unlockAudio, true);
+        document.addEventListener('touchstart', this._unlockAudio, true);
+        document.addEventListener('keydown', this._unlockAudio, true);
         this.audio.addEventListener('timeupdate', () => {
             if (this.onTimeUpdate) {
                 this.onTimeUpdate(this.audio.currentTime, this.audio.duration);

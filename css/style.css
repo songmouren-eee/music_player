@@ -1191,6 +1191,40 @@ body::after {
     border-color: var(--accent);
 }
 
+.github-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-family: inherit;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-sizing: border-box;
+}
+
+.github-link:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.github-link svg {
+    flex-shrink: 0;
+}
+
+.github-link span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* ===== 底部迷你播放器 ===== */
 .mini-player {
     position: fixed;

@@ -9,6 +9,11 @@ const App = {
         currentTab: 'search' // search / favorites / history
     },
 
+    // 歌曲加载/切换状态标志：防止加载期间 audio error 触发误切歌
+    _isLoadingSong: false,
+    // 当前歌曲错误重试计数，避免同一首歌反复出错导致无限切歌
+    _errorRetryCount: 0,
+
     els: {},
 
     init() {
@@ -153,6 +158,11 @@ const App = {
         // Player回调
         Player.onTimeUpdate = (current, duration) => this.updateProgress(current, duration);
         Player.onPlayStateChange = (playing) => {
+            if (playing) {
+                // 播放成功，清除加载标志和错误重试计数
+                this._isLoadingSong = false;
+                this._errorRetryCount = 0;
+            }
             this.updatePlayState(playing);
             this.updateMiniPlayButton(playing);
         };
@@ -161,6 +171,20 @@ const App = {
             this.els.totalTime.textContent = this.formatTime(duration);
         };
         Player.onError = () => {
+            // 核心修复：缓存加载期间 audio 触发 error（通常是缓存URL过期/失效），
+            // 此时不应直接切歌，而是先尝试刷新缓存获取新的播放地址
+            if (this._isLoadingSong) {
+                this._isLoadingSong = false;
+                this.tryRefreshCurrentSong();
+                return;
+            }
+            // 正常播放中出错：允许重试一次刷新缓存，仍失败才切歌
+            if (this._errorRetryCount < 1 && Player.currentSong && Player.currentSong.id) {
+                this._errorRetryCount++;
+                this.tryRefreshCurrentSong();
+                return;
+            }
+            this._errorRetryCount = 0;
             this.showToast('播放出错，自动切换下一首');
             setTimeout(() => this.playNext(), 1000);
         };
@@ -318,6 +342,9 @@ const App = {
 
     // ===== 播放 =====
     async loadAndPlay(songId, index) {
+        // 标记正在加载歌曲，防止加载期间 audio error 触发误切歌
+        this._isLoadingSong = true;
+        this._errorRetryCount = 0;
         this.els.trackTitle.textContent = '加载中...';
         this.els.trackArtist.textContent = '--';
         this.els.lyricContainer.innerHTML = '<div class="lyric-line">歌词加载中...</div>';
@@ -329,8 +356,13 @@ const App = {
         const cached = Cache.getSong(songId, quality);
         if (cached) {
             this.applySongData(cached);
-            Player.play().catch(() => {
-                this.showToast('点击播放按钮开始播放');
+            // 自动播放：音频元素已在用户点击手势中被解锁，此处可直接播放
+            Player.play().then(() => {
+                // 播放成功，清除加载标志（playing 事件也会处理，这里双保险）
+                this._isLoadingSong = false;
+            }).catch(() => {
+                this._isLoadingSong = false;
+                this.showToast('自动播放被阻止，请点击播放按钮');
             });
             return;
         }
@@ -340,13 +372,58 @@ const App = {
             // 写入缓存
             Cache.setSong(songId, quality, data);
             this.applySongData(data);
-            Player.play().catch(() => {
-                this.showToast('点击播放按钮开始播放');
+            // 自动播放：音频元素已在用户点击手势中被解锁，异步加载后仍可播放
+            Player.play().then(() => {
+                this._isLoadingSong = false;
+            }).catch(() => {
+                this._isLoadingSong = false;
+                this.showToast('自动播放被阻止，请点击播放按钮');
             });
         } catch (e) {
+            this._isLoadingSong = false;
             this.els.trackTitle.textContent = '加载失败';
             this.els.trackArtist.textContent = e.message;
             this.showToast('加载失败: ' + e.message);
+        }
+    },
+
+    // 尝试绕过缓存重新获取当前歌曲的播放地址并播放
+    // 用于缓存中的URL过期/失效导致 audio error 时，自动刷新而不是直接切歌
+    async tryRefreshCurrentSong() {
+        if (!Player.currentSong || !Player.currentSong.id) {
+            this.playNext();
+            return;
+        }
+        // 本地导入的音乐无法刷新，直接切歌
+        if (String(Player.currentSong.id).startsWith('local_')) {
+            this.showToast('播放出错，自动切换下一首');
+            setTimeout(() => this.playNext(), 1000);
+            return;
+        }
+        const songId = Player.currentSong.id;
+        const quality = this.els.qualitySelect.value;
+        try {
+            this.showToast('缓存地址已失效，正在重新获取...');
+            // 标记正在刷新，防止刷新过程中再次触发 error 导致重复操作
+            this._isLoadingSong = true;
+            // 绕过缓存，直接从 API 获取最新的播放地址
+            const data = await Player.load(songId, quality);
+            // 更新缓存中的歌曲数据（覆盖旧的失效URL）
+            Cache.setSong(songId, quality, data);
+            this.applySongData(data);
+            // 歌曲数据加载完成，立即清除加载标志。
+            // 若此时不清除，新URL仍失效时 error 会再次进入本方法，导致无限循环。
+            this._isLoadingSong = false;
+            Player.play().then(() => {
+                this.showToast('播放地址已刷新');
+            }).catch(() => {
+                this.showToast('播放失败，切换下一首');
+                setTimeout(() => this.playNext(), 1000);
+            });
+        } catch (e) {
+            this._isLoadingSong = false;
+            this.showToast('重新获取失败，切换下一首');
+            setTimeout(() => this.playNext(), 1000);
         }
     },
 
@@ -829,6 +906,9 @@ const App = {
 
     loadLocalSong(file, lyricText) {
         try {
+            // 标记正在加载，防止本地文件加载期间 error 触发误切歌
+            this._isLoadingSong = true;
+            this._errorRetryCount = 0;
             const song = Player.loadLocal(file, lyricText);
             this.els.trackTitle.textContent = song.name;
             this.els.trackArtist.textContent = song.singer;
@@ -837,11 +917,16 @@ const App = {
             this.state.currentIndex = -1;
             this.updateMiniPlayer();
             this.navigate('player');
-            Player.play().catch(() => {
-                this.showToast('点击播放按钮开始播放');
+            // 自动播放本地音乐
+            Player.play().then(() => {
+                this._isLoadingSong = false;
+            }).catch(() => {
+                this._isLoadingSong = false;
+                this.showToast('自动播放被阻止，请点击播放按钮');
             });
             this.showToast('本地音乐已加载');
         } catch (e) {
+            this._isLoadingSong = false;
             this.showToast('加载失败: ' + e.message);
         }
     },
