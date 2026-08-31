@@ -488,6 +488,31 @@ body::after {
     height: 18px;
     fill: var(--text-muted);
 }
+.song-download-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 0.5;
+    transition: all 0.2s;
+}
+.song-download-btn:hover {
+    opacity: 1;
+}
+.song-download-btn:hover svg {
+    fill: var(--accent);
+}
+.song-download-btn svg {
+    width: 18px;
+    height: 18px;
+    fill: var(--text-muted);
+}
 
 .play-icon {
     width: 36px;

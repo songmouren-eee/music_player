@@ -54,7 +54,7 @@ const App = {
             'localLyricInput', 'toast', 'searchBarArea', 'searchHistoryArea',
             'miniPlayer', 'miniCover', 'miniTitle', 'miniArtist', 'miniInfo',
             'miniPlayBtn', 'miniPlayIcon', 'miniPrevBtn', 'miniNextBtn',
-            'clearCacheBtn'
+            'clearCacheBtn', 'downloadBtn'
         ];
         ids.forEach(id => {
             this.els[id] = document.getElementById(id);
@@ -99,6 +99,7 @@ const App = {
         this.els.progressBar.addEventListener('click', e => this.seekTo(e));
         this.els.playModeBtn.onclick = () => this.togglePlayMode();
         this.els.favoriteBtn.onclick = () => this.toggleFavorite();
+        this.els.downloadBtn.onclick = () => this.downloadCurrentSong();
 
         // 队列
         this.els.queueBtn.onclick = () => this.showQueue();
@@ -272,6 +273,9 @@ const App = {
                 <button class="song-fav-btn ${isFav ? 'active' : ''}" data-id="${song.id}" title="收藏">
                     <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
                 </button>
+                <button class="song-download-btn" data-id="${song.id}" title="下载">
+                    <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                </button>
                 <div class="play-icon">
                     <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                 </div>
@@ -280,6 +284,10 @@ const App = {
             item.querySelector('.song-fav-btn').onclick = (e) => {
                 e.stopPropagation();
                 this.toggleFavoriteInList(song, e.target.closest('.song-fav-btn'));
+            };
+            item.querySelector('.song-download-btn').onclick = (e) => {
+                e.stopPropagation();
+                this.downloadSong(song);
             };
 
             item.onclick = () => {
@@ -575,6 +583,150 @@ const App = {
         if (!Player.currentSong) return;
         const isFav = Storage.isFavorite(Player.currentSong.id);
         this.els.favoriteBtn.classList.toggle('active', isFav);
+    },
+    // ===== 音乐下载 =====
+    // 下载当前播放的歌曲
+    downloadCurrentSong() {
+        if (!Player.currentSong) {
+            this.showToast('暂无可下载的歌曲');
+            return;
+        }
+        this.downloadSong(Player.currentSong);
+    },
+    // 下载指定歌曲
+    async downloadSong(song) {
+        // 本地导入的音乐不支持下载
+        if (song.id && String(song.id).startsWith('local_')) {
+            this.showToast('本地音乐无需下载');
+            return;
+        }
+        const quality = this.els.qualitySelect.value;
+        let songData = null;
+        // 优先使用当前正在播放的歌曲数据
+        if (Player.currentSong && Player.currentSong.id === song.id && Player.currentSongData) {
+            songData = Player.currentSongData;
+        } else {
+            // 查缓存
+            const cached = Cache.getSong(song.id, quality);
+            if (cached) {
+                songData = cached;
+            } else {
+                // 从API获取歌曲详情（不影响当前播放）
+                try {
+                    this.showToast('正在获取下载地址...');
+                    songData = await this.fetchSongDetail(song.id, quality);
+                    Cache.setSong(song.id, quality, songData);
+                } catch (e) {
+                    this.showToast('获取下载地址失败: ' + e.message);
+                    return;
+                }
+            }
+        }
+        const audioUrl = songData.url?.url;
+        if (!audioUrl) {
+            this.showToast('未找到下载地址');
+            return;
+        }
+        // 生成文件名（不含扩展名，扩展名按环境分别处理）
+        const singer = song.singer || songData.info?.singer || '未知歌手';
+        const songName = song.name || songData.info?.name || '未知歌曲';
+        const baseFilename = `${songName} - ${singer}`.replace(/[\\/:*?"<>|]/g, '_');
+        // WebView/APK 环境：直接用原始 URL 触发系统下载，避免 fetch+Blob 大文件内存溢出闪退
+        if (this.isWebViewEnv()) {
+            this.downloadViaNative(audioUrl, baseFilename);
+            return;
+        }
+        // 浏览器环境：fetch + Blob 方式（支持自定义文件名和扩展名）
+        try {
+            this.showToast('正在下载...');
+            const response = await fetch(audioUrl);
+            if (!response.ok) throw new Error('网络响应异常');
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            // 根据 Content-Type 推断文件扩展名
+            const contentType = response.headers.get('content-type') || '';
+            let ext = 'mp3';
+            if (contentType.includes('flac')) ext = 'flac';
+            else if (contentType.includes('wav')) ext = 'wav';
+            else if (contentType.includes('ogg')) ext = 'ogg';
+            else if (contentType.includes('m4a') || contentType.includes('aac')) ext = 'm4a';
+            const fullFilename = `${baseFilename}.${ext}`;
+            // 触发浏览器下载
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = fullFilename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            // 释放 blob URL
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+            this.showToast('下载完成: ' + fullFilename);
+        } catch (e) {
+            // fetch 失败时降级为直接打开链接（跨域限制时的兜底）
+            try {
+                const a = document.createElement('a');
+                a.href = audioUrl;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                this.showToast('已在新标签页打开，请右键另存为');
+            } catch (e2) {
+                this.showToast('下载失败: ' + e.message);
+            }
+        }
+    },
+    // 检测是否在 WebView/APK 环境中运行
+    isWebViewEnv() {
+        try {
+            const ua = navigator.userAgent || '';
+            // webcat 等打包工具的 WebView 特征
+            if (/webcat|wv|webview/i.test(ua)) return true;
+            // Android WebView 标准特征：包含 ; wv
+            if (/Android/i.test(ua) && /; wv\)/.test(ua)) return true;
+            // Android 环境但缺少 Chrome 版本号（典型 WebView）
+            if (/Android/i.test(ua) && !/Chrome\/\d+/.test(ua)) return true;
+            return false;
+        } catch (e) {
+            return false;
+        }
+    },
+    // WebView 环境下通过原生下载器下载（不经过 fetch+Blob，避免大文件内存溢出闪退）
+    downloadViaNative(url, baseFilename) {
+        try {
+            // 方式1：通过 <a download> 触发，WebView 的 DownloadListener 会拦截并交给系统下载
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = baseFilename + '.mp3';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            this.showToast('正在调用系统下载...');
+        } catch (e) {
+            // 方式2：降级为 location.href 导航，触发 WebView 下载监听
+            try {
+                window.location.href = url;
+                this.showToast('正在调用系统下载...');
+            } catch (e2) {
+                this.showToast('下载失败，请在打包工具中开启文件下载权限');
+            }
+        }
+    },
+    // 从API获取歌曲详情（不影响当前播放状态）
+    async fetchSongDetail(songId, quality) {
+        const params = new URLSearchParams();
+        params.append('api_path', 'wy_music');
+        params.append('action', 'song');
+        params.append('id', songId);
+        params.append('level', quality);
+        params.append('app_key', CONFIG.APP_KEY);
+        const res = await fetch(`${CONFIG.API_URL}?${params.toString()}`);
+        const json = await res.json();
+        const data = json?.data?.data;
+        if (!data) throw new Error('获取歌曲信息失败');
+        return data;
     },
 
     // ===== 标签页切换 =====

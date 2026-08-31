@@ -12,13 +12,13 @@ const Cache = {
     // 缓存有效期（毫秒）
     TTL: {
         search: 10 * 60 * 1000,      // 搜索结果缓存10分钟
-        song: 30 * 60 * 1000         // 歌曲详情缓存30分钟
+        song: Infinity                 // 歌曲详情缓存永久有效，直到用户手动清理
     },
 
     // 最大缓存数量
     MAX_CACHE: {
         search: 50,
-        song: 30
+        song: Infinity                 // 歌曲缓存不限制数量，配合永久 TTL 使用
     },
 
     // 初始化：从localStorage加载缓存到内存
